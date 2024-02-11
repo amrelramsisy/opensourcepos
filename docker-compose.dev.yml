@@ -1,40 +1,56 @@
-version: '2'
+version: '3.7'
 
 volumes:
     uploads:
         driver: local
-  
+    logs:
+        driver: local
+    mysql:
+        driver: local
+
+networks:
+    app_net:
+    db_net:
+
 services:
-    sqlscript:
-        build:
-            context: database/
-            dockerfile: Dockerfile
-    php:
+    ospos:
         build:
             context: .
-            dockerfile: Dockerfile.dev
-        links:
-            - mysql
+            target: ospos_dev
+        container_name: ospos_dev
+        restart: always
+        depends_on:
+          - mysql
         ports:
-            - "80:80"
+          - "80:80"
+        networks:
+          - app_net
+          - db_net
         volumes:
-            - .:/app
+          - .:/app
+          - uploads:/app/public/uploads
+          - logs:/app/application/logs
         environment:
-            - PHP_TIMEZONE=UTC
-            - MYSQL_USERNAME=admin
-            - MYSQL_PASSWORD=pointofsale
-            - MYSQL_DB_NAME=ospos
-            - MYSQL_HOST_NAME=mysql
-            - XDEBUG_CONFIG=remote_host=172.17.0.1
+          - PHP_TIMEZONE=UTC
+          - MYSQL_USERNAME=admin
+          - MYSQL_PASSWORD=pointofsale
+          - MYSQL_DB_NAME=ospos
+          - MYSQL_HOST_NAME=mysql
+          - XDEBUG_CONFIG=remote_host=172.17.0.1
 
     mysql:
-        image: mariadb:10.1.21
+        image: mariadb:10.5
+        container_name: mysql
+        restart: always
+        expose:
+          - "3306"
+        networks:
+          - db_net
+        volumes:
+          - ./database/database.sql:/docker-entrypoint-initdb.d/database.sql
+          - mysql:/var/lib/mysql:rw
         environment:
-            - MYSQL_ROOT_PASSWORD=pointofsale
-            - MYSQL_DATABASE=ospos
-            - MYSQL_USER=admin
-            - MYSQL_PASSWORD=pointofsale
-        ports:
-            - "3306:3306"
-        volumes_from:
-            - sqlscript
+          - MYSQL_ROOT_PASSWORD=pointofsale
+          - MYSQL_DATABASE=ospos
+          - MYSQL_USER=admin
+          - MYSQL_PASSWORD=pointofsale

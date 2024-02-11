@@ -8,8 +8,8 @@
 
 class Tax_lib
 {
-	const TAX_TYPE_EXCLUDED = 1;
-	const TAX_TYPE_INCLUDED = 0;
+	const TAX_TYPE_EXCLUDED = '1';
+	const TAX_TYPE_INCLUDED = '0';
 
 	private $CI;
 
@@ -44,18 +44,15 @@ class Tax_lib
 	 */
 	public function get_tax_for_amount($tax_basis, $tax_percentage, $rounding_mode, $decimals)
 	{
-		$tax_fraction = bcdiv($tax_percentage, 100);
-
-		$tax_amount = bcmul($tax_basis, $tax_fraction);
+		$tax_amount = bcmul($tax_basis, bcdiv($tax_percentage, 100));
 
 		return Rounding_mode::round_number($rounding_mode, $tax_amount, $decimals);
 	}
 
-
 	/**
 	 * Compute taxes for all items in the cart
 	 */
-	public function get_taxes($cart)
+	public function get_taxes(&$cart, $sale_id = -1)
 	{
 		$register_mode = $this->CI->sale_lib->get_mode();
 		$tax_decimals = tax_decimals();
@@ -69,11 +66,21 @@ class Tax_lib
 		{
 			foreach($cart as $line => $item)
 			{
+				$taxed = FALSE;
+
 				if(!($this->CI->config->item('use_destination_based_tax')))
 				{
 					// Start of current Base System tax calculations
 
-					$tax_info = $this->CI->Item_taxes->get_info($item['item_id']);
+					if($sale_id == -1)
+					{
+						$tax_info = $this->CI->Item_taxes->get_info($item['item_id']);
+					}
+					else
+					{
+						$tax_info = $this->CI->Sale->get_sales_item_taxes($sale_id, $item['item_id']);
+
+					}
 					$tax_group_sequence = 0;
 					$cascade_level = 0;
 					$cascade_basis_level = 0;
@@ -81,13 +88,13 @@ class Tax_lib
 					foreach($tax_info as $tax)
 					{
 						// This computes tax for each line item and adds it to the tax type total
-						$tax_basis = $this->CI->sale_lib->get_item_total($item['quantity'], $item['price'], $item['discount'], TRUE);
+						$tax_basis = $this->CI->sale_lib->get_item_total($item['quantity'], $item['price'], $item['discount'], $item['discount_type'], TRUE);
 						$tax_amount = 0.0;
 
 						if($this->CI->config->item('tax_included'))
 						{
 							$tax_type = Tax_lib::TAX_TYPE_INCLUDED;
-							$tax_amount = $this->get_included_tax($item['quantity'], $item['price'], $item['discount'], $tax['percent'], $tax_decimals, Rounding_mode::HALF_UP);
+							$tax_amount = $this->get_included_tax($item['quantity'], $item['price'], $item['discount'], $item['discount_type'], $tax['percent'], $tax_decimals, Rounding_mode::HALF_UP);
 						}
 						else
 						{
@@ -100,6 +107,7 @@ class Tax_lib
 							$tax_group_sequence++;
 							$this->update_taxes($taxes, $tax_type, $tax['name'], $tax['percent'], $tax_basis, $tax_amount, $tax_group_sequence, Rounding_mode::HALF_UP, -1, $tax['name']);
 							$tax_group_sequence += 1;
+							$taxed = TRUE;
 						}
 						$items_taxes_detail = array();
 						$items_taxes_detail['item_id'] = $item['item_id'];
@@ -121,16 +129,21 @@ class Tax_lib
 				{
 					// Start of destination based tax calculations
 
-					if ($item['tax_category_id'] == NULL)
+					if($item['tax_category_id'] == NULL)
 					{
 						$item['tax_category_id'] = $this->CI->config->config['default_tax_category'];
 					}
-					$tax_category = '';
-					$tax_rate = '';
-					$rounding_code = Rounding_mode::HALF_UP;
-					$tax_group_sequence = 0;
-					$tax_code = '';
-					$this->apply_destination_tax($item, $customer_info->city, $customer_info->state, $customer_info->sales_tax_code_id, $register_mode, 0, $taxes, $item_taxes, $item['line']);
+
+					$taxed = $this->apply_destination_tax($item, $customer_info->city, $customer_info->state, $customer_info->sales_tax_code_id, $register_mode, 0, $taxes, $item_taxes, $item['line']);
+				}
+
+				if($taxed)
+				{
+					$cart[$line]['taxed_flag'] = $this->CI->lang->line('sales_taxed_ind');
+				}
+				else
+				{
+					$cart[$line]['taxed_flag'] = $this->CI->lang->line('sales_nontaxed_ind');
 				}
 			}
 			$this->round_taxes($taxes);
@@ -143,17 +156,13 @@ class Tax_lib
 		return $tax_details;
 	}
 
-	public function get_included_tax($quantity, $price, $discount_percentage, $tax_percentage, $tax_decimal, $rounding_code)
+	public function get_included_tax($quantity, $price, $discount_percentage, $discount_type, $tax_percentage, $tax_decimal, $rounding_code)
 	{
-		$price = $this->CI->sale_lib->get_item_total($quantity, $price, $discount_percentage, TRUE);
-		$tax_fraction = bcadd(100, $tax_percentage);
-		$tax_fraction = bcdiv($tax_fraction, 100);
-		$price_tax_excl = bcdiv($price, $tax_fraction);
-		$tax_amount = bcsub($price, $price_tax_excl);
-
-		return Rounding_mode::round_number($rounding_code, $tax_amount, $tax_decimal);
+		$item_total = $this->CI->sale_lib->get_item_total($quantity, $price, $discount_percentage, $discount_type, TRUE);
+		$tax_fraction = bcdiv(bcadd(100, $tax_percentage), 100);
+		$price_tax_excl = bcdiv($item_total, $tax_fraction);
+		return bcsub($item_total, $price_tax_excl);
 	}
-
 
 	/*
 	* Updates the sales_tax array which is later saved to the `sales_taxes` table and used for printing taxes on receipts and invoices
@@ -242,7 +251,6 @@ class Tax_lib
 			$decimals = totals_decimals();
 		}
 
-
 		foreach($taxes as $row_number => $sales_tax)
 		{
 			$tax_amount = $sales_tax['sale_tax_amount'];
@@ -268,12 +276,12 @@ class Tax_lib
 			elseif($rounding_code == Rounding_mode::ROUND_UP)
 			{
 				$fig = (int)str_pad('1', $decimals, '0');
-				$rounded_tax_amount = (ceil($tax_amount * $fig) / $fig);
+				$rounded_tax_amount = ceil($tax_amount * $fig) / $fig;
 			}
 			elseif($rounding_code == Rounding_mode::ROUND_DOWN)
 			{
 				$fig = (int)str_pad('1', $decimals, '0');
-				$rounded_tax_amount = (floor($tax_amount * $fig) / $fig);
+				$rounded_tax_amount = floor($tax_amount * $fig) / $fig;
 			}
 			elseif($rounding_code == Rounding_mode::HALF_FIVE)
 			{
@@ -282,9 +290,7 @@ class Tax_lib
 
 			$taxes[$row_number]['sale_tax_amount'] = $rounded_tax_amount;
 		}
-
 	}
-
 
 	/**
 	 * Determine the applicable tax code and then determine the tax amount to be applied.
@@ -292,6 +298,8 @@ class Tax_lib
 	 */
 	public function apply_destination_tax(&$item, $city, $state, $sales_tax_code_id, $register_mode, $sale_id, &$taxes, &$item_taxes, $line)
 	{
+		$taxed = FALSE;
+
 		$tax_code_id = $this->get_applicable_tax_code($register_mode, $city, $state, $sales_tax_code_id);
 
 		// If tax code cannot be determined or the price is zero then skip this item
@@ -327,7 +335,7 @@ class Tax_lib
 
 				if($tax_type == Tax_lib::TAX_TYPE_INCLUDED)
 				{
-					$tax_amount = $this->get_included_tax($item['quantity'], $item['price'], $item['discount'], $tax_rate, $tax_decimals, $rounding_code);
+					$tax_amount = $this->get_included_tax($item['quantity'], $item['price'], $item['discount'], $item['discount_type'], $tax_rate, $tax_decimals, $rounding_code);
 				}
 				else
 				{
@@ -337,7 +345,7 @@ class Tax_lib
 
 				if($tax_amount != 0)
 				{
-
+					$taxed = TRUE;
 					$this->update_taxes($taxes, $tax_type, $tax['tax_group'], $tax_rate, $tax_basis, $tax_amount, $tax['tax_group_sequence'], $rounding_code, $sale_id, $tax['tax_group'], $tax_code_id, $tax['rate_jurisdiction_id'], $item['tax_category_id']);
 				}
 
@@ -357,17 +365,13 @@ class Tax_lib
 
 				$item_taxes[] = $item_taxes_detail;
 			}
-			return;
 		}
-		else
-		{
-			return;
-		}
+
+		return $taxed;
 	}
 
 	public function get_applicable_tax_code($register_mode, $city, $state, $sales_tax_code_id)
 	{
-
 		if($register_mode == "sale")
 		{
 			$sales_tax_code_id = $this->CI->config->config['default_tax_code']; // overrides customer assigned code
@@ -378,7 +382,8 @@ class Tax_lib
 			{
 				$sales_tax_code_id = $this->CI->Tax_code->get_sales_tax_code($city, $state);
 
-				if($sales_tax_code_id == NULL || $sales_tax_code_id == 0) {
+				if($sales_tax_code_id == NULL || $sales_tax_code_id == 0)
+				{
 					$sales_tax_code_id = $this->CI->config->config['default_tax_code']; // overrides customer assigned code
 				}
 			}
@@ -405,6 +410,7 @@ class Tax_lib
 			$b = $tax_code['tax_code_name'];
 			$tax_code_options[$a] = $b;
 		}
+
 		return $tax_code_options;
 	}
 
@@ -419,6 +425,7 @@ class Tax_lib
 			$b = $tax_jurisdiction['jurisdiction_name'];
 			$tax_jurisdiction_options[$a] = $b;
 		}
+
 		return $tax_jurisdiction_options;
 	}
 
@@ -434,6 +441,7 @@ class Tax_lib
 
 			$tax_category_options[$a] = $b;
 		}
+
 		return $tax_category_options;
 	}
 
@@ -444,17 +452,17 @@ class Tax_lib
 		$s1 = '';
 		$s2 = '';
 
-		if($selected_tax_type == Tax_lib::TAX_TYPE_EXCLUDED)
+		if($selected_tax_type === Tax_lib::TAX_TYPE_EXCLUDED)
 		{
 			$s1 = $selected;
 		}
-		else if($selected_tax_type == Tax_lib::TAX_TYPE_INCLUDED)
+		else if($selected_tax_type === Tax_lib::TAX_TYPE_INCLUDED)
 		{
 			$s2 = $selected;
 		}
+
 		return '<option value=\"' . Tax_lib::TAX_TYPE_EXCLUDED . '\" ' . $s1 . '> ' . $this->CI->lang->line('taxes_sales_tax')
 			. '</option><option value=\"' . Tax_lib::TAX_TYPE_INCLUDED . '\" ' . $s2 . '> ' . $this->CI->lang->line('taxes_vat_tax') . '</option>';
 	}
-
 }
 ?>

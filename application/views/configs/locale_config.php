@@ -9,6 +9,7 @@
 				<div class='row'>
 					<div class='col-xs-1'>
 						<?php echo form_input('number_locale', $this->config->item('number_locale'), array('class' => 'form-control input-sm', 'id' => 'number_locale')); ?>
+						<?php echo form_hidden('save_number_locale', $this->config->item('number_locale')); ?>
 					</div>
 					<div class="col-xs-2">
 						<label class="control-label">
@@ -52,7 +53,7 @@
 						'name' => 'currency_code',
 						'id' => 'currency_code',
 						'class' => 'form-control input-sm number_locale',
-						'value'=>$this->config->item('currency_code'))); ?>
+						'value'=>$currency_code)); ?>
 				</div>
 			</div>
 			
@@ -98,9 +99,9 @@
 				</div>
 			</div>
 
-            <div class="form-group form-group-sm">
+			<div class="form-group form-group-sm">
 				<?php echo form_label($this->lang->line('config_cash_decimals'), 'cash_decimals', array('class' => 'control-label col-xs-2')); ?>
-                <div class='col-xs-2'>
+				<div class='col-xs-2'>
 					<?php echo form_dropdown('cash_decimals', array(
 						'-1' => '-1',
 						'0' => '0',
@@ -109,23 +110,23 @@
 					),
 						$this->config->item('cash_decimals'), array('class' => 'form-control input-sm'));
 					?>
-                </div>
-                <div class='col-xs-1'>
-	                <label class="control-label">
-                        <span class="glyphicon glyphicon-info-sign" data-toggle="tooltip" data-placement="right" title="<?php echo $this->lang->line('config_cash_decimals_tooltip'); ?>"></span>
-	                </label>
-                </div>
-            </div>
+				</div>
+				<div class='col-xs-1'>
+					<label class="control-label">
+						<span class="glyphicon glyphicon-info-sign" data-toggle="tooltip" data-placement="right" title="<?php echo $this->lang->line('config_cash_decimals_tooltip'); ?>"></span>
+					</label>
+				</div>
+			</div>
 
-            <div class="form-group form-group-sm">
+			<div class="form-group form-group-sm">
 				<?php echo form_label($this->lang->line('config_cash_rounding'), 'cash_rounding_code', array('class' => 'control-label col-xs-2')); ?>
-                <div class='col-xs-2'>
+				<div class='col-xs-2'>
 					<?php echo form_dropdown('cash_rounding_code', $rounding_options, $this->config->item('cash_rounding_code'), array('class' => 'form-control input-sm'));
 					?>
-                </div>
-            </div>
+				</div>
+			</div>
 
-            <div class="form-group form-group-sm">
+			<div class="form-group form-group-sm">
 				<?php echo form_label($this->lang->line('config_payment_options_order'), 'payment_options_order', array('class' => 'control-label col-xs-2')); ?>
 				<div class='col-xs-4'>
 					<?php echo form_dropdown('payment_options_order', array(
@@ -193,15 +194,15 @@
 			</div>
 
 			<div class="form-group form-group-sm">
-  				<?php echo form_label($this->lang->line('config_date_or_time_format'), 'date_or_time_format', array('class' => 'control-label col-xs-2')); ?>
-  				<div class='col-xs-2'>
- 					<?php echo form_checkbox(array(
- 						'name' => 'date_or_time_format',
- 						'id' => 'date_or_time_format',
- 						'value' => 'date_or_time_format',
-  						'checked'=>$this->config->item('date_or_time_format'))); ?>
-  				</div>
-  			</div>
+				<?php echo form_label($this->lang->line('config_date_or_time_format'), 'date_or_time_format', array('class' => 'control-label col-xs-2')); ?>
+				<div class='col-xs-2'>
+					<?php echo form_checkbox(array(
+						'name' => 'date_or_time_format',
+						'id' => 'date_or_time_format',
+						'value' => 'date_or_time_format',
+						'checked'=>$this->config->item('date_or_time_format'))); ?>
+				</div>
+			</div>
 
 			<div class="form-group form-group-sm">
 				<?php echo form_label($this->lang->line('config_financial_year'), 'financial_year', array('class' => 'control-label col-xs-2')); ?>
@@ -240,14 +241,16 @@ $(document).ready(function()
 {
 	$('span').tooltip();
 
-	$('#number_locale').change(function() {
-		var field = $(this).attr('id');
-		var value = $(this).is(':checkbox') ? $(this).is(':checked') : $(this).val();
+	$('#currency_symbol, #thousands_separator, #currency_code').change(function() {
 		var data = { number_locale: $('#number_locale').val() };
-		data[field] = value;
+		data['save_number_locale'] = $("input[name='save_number_locale']").val();
+		data['currency_symbol'] = $('#currency_symbol').val();
+		data['currency_code'] = $('#currency_code').val();
+		data['thousands_separator'] = $('#thousands_separator').is(":checked")
 		$.post("<?php echo site_url($controller_name . '/ajax_check_number_locale')?>",
 			data,
 			function(response) {
+				$("input[name='save_number_locale']").val(response.save_number_locale);
 				$('#number_locale_example').text(response.number_locale_example);
 				$('#currency_symbol').val(response.currency_symbol);
 				$('#currency_code').val(response.currency_code);
@@ -267,16 +270,18 @@ $(document).ready(function()
 					url: "<?php echo site_url($controller_name . '/ajax_check_number_locale')?>",
 					type: 'POST',
 					data: {
-						'number_locale': $('#number_locale').val(),
-						'thousands_separator': $('#thousands_separator').is(':checked'),
-						'currency_code': $('#currency_code').val()
+						'number_locale': function() { return $('#number_locale').val(); },
+						'save_number_locale': function() { return $("input[name='save_number_locale']").val(); },
+						'currency_symbol': function() { return $('#currency_symbol').val(); },
+						'thousands_separator': function() { return $('#thousands_separator').is(':checked'); },
+						'currency_code': function() { return $('#currency_code').val(); }
 					},
 					dataFilter: function(data) {
 						var response = JSON.parse(data);
+						$("input[name='save_number_locale']").val(response.save_number_locale);
 						$('#number_locale_example').text(response.number_locale_example);
 						$('#currency_symbol').val(response.currency_symbol);
 						$('#currency_code').val(response.currency_code);
-						$('#thousands_separator').prop('checked', response.thousands_separator);
 						return response.success;
 					}
 				}

@@ -50,7 +50,8 @@ class Reports extends Secure_Controller
 		foreach($report_data as $row)
 		{
 			$tabular_data[] = $this->xss_clean(array(
-				'sale_date' => date($this->config->item('dateformat'), strtotime($row['sale_date'])),
+				'sale_date' => to_date(strtotime($row['sale_date'])),
+				'sales' => to_quantity_decimals($row['sales']),
 				'quantity' => to_quantity_decimals($row['quantity_purchased']),
 				'subtotal' => to_currency($row['subtotal']),
 				'tax' => to_currency_tax($row['tax']),
@@ -156,6 +157,7 @@ class Reports extends Secure_Controller
 		{
 			$tabular_data[] = $this->xss_clean(array(
 				'customer_name' => $row['customer'],
+				'sales' => to_quantity_decimals($row['sales']),
 				'quantity' => to_quantity_decimals($row['quantity_purchased']),
 				'subtotal' => to_currency($row['subtotal']),
 				'tax' => to_currency_tax($row['tax']),
@@ -228,6 +230,9 @@ class Reports extends Secure_Controller
 		{
 			$tabular_data[] = $this->xss_clean(array(
 				'item_name' => $row['name'],
+				'category' => $row['category'],
+				'cost_price' => $row['cost_price'],
+				'unit_price' => $row['unit_price'],
 				'quantity' => to_quantity_decimals($row['quantity_purchased']),
 				'subtotal' => to_currency($row['subtotal']),
 				'tax'  => to_currency_tax($row['tax']),
@@ -264,6 +269,7 @@ class Reports extends Secure_Controller
 		{
 			$tabular_data[] = $this->xss_clean(array(
 				'employee_name' => $row['employee'],
+				'sales' => to_quantity_decimals($row['sales']),
 				'quantity' => to_quantity_decimals($row['quantity_purchased']),
 				'subtotal' => to_currency($row['subtotal']),
 				'tax' => to_currency_tax($row['tax']),
@@ -299,6 +305,7 @@ class Reports extends Secure_Controller
 		foreach($report_data as $row)
 		{
 			$tabular_data[] = $this->xss_clean(array(
+				'tax_name' => $row['name'],
 				'tax_percent' => $row['percent'],
 				'report_count' => $row['count'],
 				'subtotal' => to_currency($row['subtotal']),
@@ -361,7 +368,7 @@ class Reports extends Secure_Controller
 		$data['mode'] = 'sale';
 		$data['discount_type_options'] = array(
 			'0' => $this->lang->line('reports_discount_percent'),
-			'1'=> $this->lang->line('reports_discount_fixed'));
+			'1' => $this->lang->line('reports_discount_fixed'));
 		$data['sale_type_options'] = $this->get_sale_type_options();
 
 		$this->load->view('reports/date_input', $data);
@@ -418,7 +425,7 @@ class Reports extends Secure_Controller
 				$tabular_data[] = array(
 					'trans_group' => '--',
 					'trans_type' => '--',
-					'trans_count' => '--',
+					'trans_sales' => '--',
 					'trans_amount' => '--',
 					'trans_payments' => '--',
 					'trans_refunded' => '--',
@@ -435,7 +442,7 @@ class Reports extends Secure_Controller
 				$tabular_data[] = $this->xss_clean(array(
 					'trans_group' => $row['trans_group'],
 					'trans_type' => $row['trans_type'],
-					'trans_count' => $row['trans_count'],
+					'trans_sales' => $row['trans_sales'],
 					'trans_amount' => to_currency($row['trans_amount']),
 					'trans_payments' => to_currency($row['trans_payments']),
 					'trans_refunded' => to_currency($row['trans_refunded']),
@@ -551,7 +558,7 @@ class Reports extends Secure_Controller
 		{
 			$row = $this->xss_clean($row);
 
-			$date = date($this->config->item('dateformat'), strtotime($row['sale_date']));
+			$date = to_date(strtotime($row['sale_date']));
 			$labels[] = $date;
 			$series[] = array('meta' => $date, 'value' => $row['total']);
 		}
@@ -850,9 +857,9 @@ class Reports extends Secure_Controller
 	}
 
 	//Graphical summary payments report
-	public function graphical_summary_payments($start_date, $end_date, $sale_type)
+	public function graphical_summary_payments($start_date, $end_date, $sale_type, $location_id = 'all')
 	{
-		$inputs = array('start_date' => $start_date, 'end_date' => $end_date, 'sale_type' => $sale_type);
+		$inputs = array('start_date' => $start_date, 'end_date' => $end_date, 'sale_type' => $sale_type, 'location_id' => $location_id);
 
 		$this->load->model('reports/Summary_payments');
 		$model = $this->Summary_payments;
@@ -866,8 +873,11 @@ class Reports extends Secure_Controller
 		{
 			$row = $this->xss_clean($row);
 
-			$labels[] = $row['payment_type'];
-			$series[] = array('meta' => $row['payment_type'] . ' ' . round($row['payment_amount'] / $summary['total'] * 100, 2) . '%', 'value' => $row['payment_amount']);
+			if($row['trans_group'] == $this->lang->line('reports_trans_payments') && !empty($row['trans_amount']))
+			{
+				$labels[] = $row['trans_type'];
+				$series[] = array('meta' => $row['trans_type'] . ' ' . round($row['trans_amount'] / $summary['total'] * 100, 2) . '%', 'value' => $row['trans_amount']);
+			}
 		}
 
 		$data = array(
@@ -903,19 +913,23 @@ class Reports extends Secure_Controller
 		$data['sale_type_options'] = $this->get_sale_type_options();
 
 		$data['payment_type'] = $this->get_payment_type();
+
 		$this->load->view('reports/specific_customer_input', $data);
 	}
 
 	public function get_payment_type()
 	{
-			$payment_type = array( 'all' => $this->lang->line('common_none_selected_text'),
-					'cash' => $this->lang->line('sales_cash'),
-					'due' => $this->lang->line('sales_due'),
-					'check' => $this->lang->line('sales_check'),
-					'credit' => $this->lang->line('sales_credit'),
-					'debit' => $this->lang->line('sales_debit'),
-					'invoices' => $this->lang->line('sales_invoice'));
-			return $payment_type;
+		$payment_type = array(
+			'all' => $this->lang->line('common_none_selected_text'),
+			'cash' => $this->lang->line('sales_cash'),
+			'due' => $this->lang->line('sales_due'),
+			'check' => $this->lang->line('sales_check'),
+			'credit' => $this->lang->line('sales_credit'),
+			'debit' => $this->lang->line('sales_debit'),
+			'invoices' => $this->lang->line('sales_invoice')
+		);
+
+		return $payment_type;
 	}
 
 	public function specific_customer($start_date, $end_date, $customer_id, $sale_type, $payment_type)
@@ -950,7 +964,7 @@ class Reports extends Secure_Controller
 			$summary_data[] = $this->xss_clean(array(
 				'id' => $row['sale_id'],
 				'type_code' => $row['type_code'],
-				'sale_date' => date($this->config->item('dateformat'), strtotime($row['sale_date'])),
+				'sale_time' => to_datetime(strtotime($row['sale_time'])),
 				'quantity' => to_quantity_decimals($row['items_purchased']),
 				'employee_name' => $row['employee_name'],
 				'subtotal' => to_currency($row['subtotal']),
@@ -969,7 +983,7 @@ class Reports extends Secure_Controller
 				$details_data[$row['sale_id']][] = $this->xss_clean(array(
 					$drow['name'],
 					$drow['category'],
-					$drow['serialnumber'],
+					$drow['item_number'],
 					$drow['description'],
 					to_quantity_decimals($drow['quantity_purchased']),
 					to_currency($drow['subtotal']),
@@ -977,7 +991,8 @@ class Reports extends Secure_Controller
 					to_currency($drow['total']),
 					to_currency($drow['cost']),
 					to_currency($drow['profit']),
-					($drow['discount_type'] == PERCENT)? $drow['discount'].'%':to_currency($drow['discount'])));
+					($drow['discount_type'] == PERCENT)? $drow['discount'].'%':to_currency($drow['discount'])
+				));
 			}
 
 			if(isset($report_data['rewards'][$key]))
@@ -1061,7 +1076,7 @@ class Reports extends Secure_Controller
 			$summary_data[] = $this->xss_clean(array(
 				'id' => $row['sale_id'],
 				'type_code' => $row['type_code'],
-				'sale_date' => date($this->config->item('dateformat'), strtotime($row['sale_date'])),
+				'sale_time' => to_datetime(strtotime($row['sale_time'])),
 				'quantity' => to_quantity_decimals($row['items_purchased']),
 				'customer_name' => $row['customer_name'],
 				'subtotal' => to_currency($row['subtotal']),
@@ -1080,7 +1095,7 @@ class Reports extends Secure_Controller
 				$details_data[$row['sale_id']][] = $this->xss_clean(array(
 					$drow['name'],
 					$drow['category'],
-					$drow['serialnumber'],
+					$drow['item_number'],
 					$drow['description'],
 					to_quantity_decimals($drow['quantity_purchased']),
 					to_currency($drow['subtotal']),
@@ -1088,7 +1103,8 @@ class Reports extends Secure_Controller
 					to_currency($drow['total']),
 					to_currency($drow['cost']),
 					to_currency($drow['profit']),
-					($drow['discount_type'] == PERCENT)? $drow['discount'].'%':to_currency($drow['discount'])));
+					($drow['discount_type'] == PERCENT)? $drow['discount'].'%':to_currency($drow['discount'])
+				));
 			}
 
 			if(isset($report_data['rewards'][$key]))
@@ -1168,7 +1184,7 @@ class Reports extends Secure_Controller
 			$summary_data[] = $this->xss_clean(array(
 				'id' => $row['sale_id'],
 				'type_code' => $row['type_code'],
-				'sale_date' => date($this->config->item('dateformat'), strtotime($row['sale_date'])),
+				'sale_time' => to_datetime(strtotime($row['sale_time'])),
 				'quantity' => to_quantity_decimals($row['items_purchased']),
 				'employee_name' => $row['employee_name'],
 				'customer_name' => $row['customer_name'],
@@ -1188,7 +1204,7 @@ class Reports extends Secure_Controller
 				$details_data[$row['sale_id']][] = $this->xss_clean(array(
 					$drow['name'],
 					$drow['category'],
-					$drow['serialnumber'],
+					$drow['item_number'],
 					$drow['description'],
 					to_quantity_decimals($drow['quantity_purchased']),
 					to_currency($drow['subtotal']),
@@ -1196,7 +1212,8 @@ class Reports extends Secure_Controller
 					to_currency($drow['total']),
 					to_currency($drow['cost']),
 					to_currency($drow['profit']),
-					($drow['discount_type'] == PERCENT)? $drow['discount'].'%':to_currency($drow['discount'])));
+					($drow['discount_type'] == PERCENT)? $drow['discount'].'%':to_currency($drow['discount'])
+				));
 			}
 
 			if(isset($report_data['rewards'][$key]))
@@ -1245,7 +1262,7 @@ class Reports extends Secure_Controller
 
 		$summary_data = $this->xss_clean(array(
 			'sale_id' => $report_data['sale_id'],
-			'sale_date' => date($this->config->item('dateformat'), strtotime($report_data['sale_date'])),
+			'sale_time' => to_datetime(strtotime($row['sale_time'])),
 			'quantity' => to_quantity_decimals($report_data['items_purchased']),
 			'employee_name' => $report_data['employee_name'],
 			'customer_name' => $report_data['customer_name'],
@@ -1263,6 +1280,65 @@ class Reports extends Secure_Controller
 		echo json_encode(array($sale_id => $summary_data));
 	}
 
+	public function specific_supplier_input()
+	{
+		$data = array();
+		$data['specific_input_name'] = $this->lang->line('reports_supplier');
+
+		$supplier = array();
+		foreach($this->Supplier->get_all()->result() as $supplier)
+		{
+			$suppliers[$supplier->person_id] = $this->xss_clean($supplier->company_name . ' (' . $supplier->first_name . ' ' . $supplier->last_name . ')');
+		}
+		$data['specific_input_data'] = $suppliers;
+		$data['sale_type_options'] = $this->get_sale_type_options();
+
+		$this->load->view('reports/specific_input', $data);
+	}
+
+	public function specific_supplier($start_date, $end_date, $supplier_id, $sale_type)
+	{
+		$inputs = array('start_date' => $start_date, 'end_date' => $end_date, 'supplier_id' => $supplier_id, 'sale_type' => $sale_type);
+
+		$this->load->model('reports/Specific_supplier');
+		$model = $this->Specific_supplier;
+
+		$model->create($inputs);
+
+		$report_data = $model->getData($inputs);
+
+		$tabular_data = array();
+		foreach($report_data as $row)
+		{
+			$tabular_data[] = $this->xss_clean(array(
+				'id' => $row['sale_id'],
+				'type_code' => $row['type_code'],
+				'sale_time' => to_datetime(strtotime($row['sale_time'])),
+				'name' => $row['name'],
+				'category' => $row['category'],
+				'item_number' => $row['item_number'],
+				'quantity' => to_quantity_decimals($row['items_purchased']),
+				'subtotal' => to_currency($row['subtotal']),
+				'tax' => to_currency_tax($row['tax']),
+				'total' => to_currency($row['total']),
+				'cost' => to_currency($row['cost']),
+				'profit' => to_currency($row['profit']),
+				'discount' => ($row['discount_type'] == PERCENT)? $row['discount'].'%':to_currency($row['discount'])				
+			));
+		}
+
+		$supplier_info = $this->Supplier->get_info($supplier_id);
+		$data = array(
+			'title' => $this->xss_clean($supplier_info->company_name . ' (' . $supplier_info->first_name . ' ' . $supplier_info->last_name . ') ' . $this->lang->line('reports_report')),
+			'subtitle' => $this->_get_subtitle_report(array('start_date' => $start_date, 'end_date' => $end_date)),
+			'headers' => $this->xss_clean($model->getDataColumns()),
+			'data' => $tabular_data,
+			'summary_data' => $this->xss_clean($model->getSummaryData($inputs))
+		);
+
+		$this->load->view('reports/tabular', $data);
+	}
+
 	public function get_sale_type_options()
 	{
 		$sale_type_options = array();
@@ -1278,6 +1354,7 @@ class Reports extends Secure_Controller
 		}
 		$sale_type_options['canceled'] = $this->lang->line('reports_canceled');
 		$sale_type_options['returns'] = $this->lang->line('reports_returns');
+
 		return $sale_type_options;
 	}
 
@@ -1321,7 +1398,7 @@ class Reports extends Secure_Controller
 			$summary_data[] = $this->xss_clean(array(
 				'id' => $row['sale_id'],
 				'type_code' => $row['type_code'],
-				'sale_date' => date($this->config->item('dateformat'), strtotime($row['sale_date'])),
+				'sale_time' => to_datetime(strtotime($row['sale_time'])),
 				'quantity' => to_quantity_decimals($row['items_purchased']),
 				'employee_name' => $row['employee_name'],
 				'customer_name' => $row['customer_name'],
@@ -1344,13 +1421,12 @@ class Reports extends Secure_Controller
 					$quantity_purchased .= ' [' . $this->Stock_location->get_location_name($drow['item_location']) . ']';
 				}
 
-				$attribute_values = (isset($drow['attribute_values'])) ? $drow['attribute_values'] : '';
-				$attribute_values = expand_attribute_values($definition_names, $attribute_values);
+				$attribute_values = expand_attribute_values($definition_names, $drow);
 
 				$details_data[$row['sale_id']][] = $this->xss_clean(array_merge(array(
 					$drow['name'],
 					$drow['category'],
-					$drow['serialnumber'],
+					$drow['item_number'],
 					$drow['description'],
 					$quantity_purchased,
 					to_currency($drow['subtotal']),
@@ -1359,7 +1435,6 @@ class Reports extends Secure_Controller
 					to_currency($drow['cost']),
 					to_currency($drow['profit']),
 					($drow['discount_type'] == PERCENT)? $drow['discount'].'%':to_currency($drow['discount'])), $attribute_values));
-
 			}
 
 			if(isset($report_data['rewards'][$key]))
@@ -1381,6 +1456,7 @@ class Reports extends Secure_Controller
 			'details_data_rewards' => $details_data_rewards,
 			'overall_summary_data' => $this->xss_clean($model->getSummaryData($inputs))
 		);
+
 		$this->load->view('reports/tabular_details', $data);
 	}
 
@@ -1397,7 +1473,7 @@ class Reports extends Secure_Controller
 
 		$summary_data = $this->xss_clean(array(
 			'receiving_id' => $report_data['receiving_id'],
-			'receiving_date' => date($this->config->item('dateformat'), strtotime($report_data['receiving_date'])),
+			'receiving_time' => to_datetime(strtotime($row['receiving_time'])),
 			'quantity' => to_quantity_decimals($report_data['items_purchased']),
 			'employee_name' => $report_data['employee_name'],
 			'supplier_name' => $report_data['supplier_name'],
@@ -1439,7 +1515,7 @@ class Reports extends Secure_Controller
 		{
 			$summary_data[] = $this->xss_clean(array(
 				'id' => $row['receiving_id'],
-				'receiving_date' => date($this->config->item('dateformat'), strtotime($row['receiving_date'])),
+				'receiving_time' => to_datetime(strtotime($row['receiving_time'])),
 				'quantity' => to_quantity_decimals($row['items_purchased']),
 				'employee_name' => $row['employee_name'],
 				'supplier_name' => $row['supplier_name'],
@@ -1461,8 +1537,7 @@ class Reports extends Secure_Controller
 					$quantity_purchased .= ' [' . $this->Stock_location->get_location_name($drow['item_location']) . ']';
 				}
 
-				$attribute_values = (isset($drow['attribute_values'])) ? $drow['attribute_values'] : '';
-				$attribute_values = expand_attribute_values($definition_names, $attribute_values);
+				$attribute_values = expand_attribute_values($definition_names, $drow);
 
 				$details_data[$row['receiving_id']][] = $this->xss_clean(array_merge(array(
 					$drow['item_number'],
@@ -1471,7 +1546,6 @@ class Reports extends Secure_Controller
 					$quantity_purchased,
 					to_currency($drow['total']),
 					($drow['discount_type'] == PERCENT)? $drow['discount'].'%':to_currency($drow['discount'])), $attribute_values));
-
 			}
 		}
 
@@ -1550,6 +1624,7 @@ class Reports extends Secure_Controller
 			$tabular_data[] = $this->xss_clean(array(
 				'item_name' => $row['name'],
 				'item_number' => $row['item_number'],
+				'category' => $row['category'],
 				'quantity' => to_quantity_decimals($row['quantity']),
 				'low_sell_quantity' => to_quantity_decimals($row['low_sell_quantity']),
 				'reorder_level' => to_quantity_decimals($row['reorder_level']),

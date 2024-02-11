@@ -16,7 +16,7 @@
 		from: "<?php echo $this->config->item('notify_vertical_position'); ?>"
 	}});
 
-	var cookie_name = "<?php echo $this->config->item('csrf_cookie_name'); ?>";
+	var cookie_name = "<?php echo $this->config->item('cookie_prefix').$this->config->item('csrf_cookie_name'); ?>";
 
 	var csrf_token = function() {
 		return Cookies.get(cookie_name);
@@ -47,8 +47,23 @@
 
 		return ajax.apply(this, arguments);
 	};
-
+    
 	$(document).ajaxComplete(setup_csrf_token);
+	$(document).ready(function(){
+		$("#logout").click(function(event) {
+			event.preventDefault();
+			$.ajax({
+				url: "<?php echo site_url('home/logout'); ?>", 
+				data: { 
+					"<?php echo $this->security->get_csrf_token_name(); ?>": csrf_token()
+				},
+				success: function() {
+					window.location.href = '<?php echo site_url(); ?>';
+				},
+				method: "POST"
+			});
+		});
+	});
 
 	var submit = $.fn.submit;
 

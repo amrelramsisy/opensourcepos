@@ -15,7 +15,7 @@ class Detailed_receivings extends Report
 		return array(
 			'summary' => array(
 				array('id' => $this->lang->line('reports_receiving_id')),
-				array('receiving_date' => $this->lang->line('reports_date'), 'sortable' => FALSE),
+				array('receiving_time' => $this->lang->line('reports_date'), 'sortable' => FALSE),
 				array('quantity' => $this->lang->line('reports_quantity')),
 				array('employee_name' => $this->lang->line('reports_received_by')),
 				array('supplier_name' => $this->lang->line('reports_supplied_by')),
@@ -36,7 +36,7 @@ class Detailed_receivings extends Report
 	public function getDataByReceivingId($receiving_id)
 	{
 		$this->db->select('receiving_id,
-			MAX(receiving_date) as receiving_date,
+			MAX(receiving_time) as receiving_time,
 			SUM(quantity_purchased) AS items_purchased,
 			MAX(CONCAT(employee.first_name, " ", employee.last_name)) AS employee_name,
 			MAX(supplier.company_name) AS supplier_name,
@@ -58,7 +58,7 @@ class Detailed_receivings extends Report
 	public function getData(array $inputs)
 	{
 		$this->db->select('receiving_id,
-			MAX(receiving_date) as receiving_date,
+			MAX(receiving_time) as receiving_time,
 			SUM(quantity_purchased) AS items_purchased,
 			MAX(CONCAT(employee.first_name," ",employee.last_name)) AS employee_name,
 			MAX(supplier.company_name) AS supplier_name,
@@ -78,17 +78,17 @@ class Detailed_receivings extends Report
 
 		if($inputs['receiving_type'] == 'receiving')
 		{
-			$this->db->where('quantity_purchased > 0');
+			$this->db->where('quantity_purchased >', 0);
 		}
 		elseif($inputs['receiving_type'] == 'returns')
 		{
-			$this->db->where('quantity_purchased < 0');
+			$this->db->where('quantity_purchased <', 0);
 		}
 		elseif($inputs['receiving_type'] == 'requisitions')
 		{
 			$this->db->having('items_purchased = 0');
 		}
-		$this->db->group_by('receiving_id', 'receiving_date');
+		$this->db->group_by('receiving_id', 'receiving_time');
 		$this->db->order_by('receiving_id');
 
 		$data = array();
@@ -97,17 +97,30 @@ class Detailed_receivings extends Report
 
 		foreach($data['summary'] as $key=>$value)
 		{
-			$this->db->select('name, item_number, category, quantity_purchased, serialnumber, total, discount, discount_type, item_location, receivings_items_temp.receiving_quantity');
+			$this->db->select('
+				MAX(name) AS name, 
+				MAX(item_number) AS item_number, 
+				MAX(category) AS category, 
+				MAX(quantity_purchased) AS quantity_purchased, 
+				MAX(serialnumber) AS serialnumber, 
+				MAX(total) AS total, 
+				MAX(discount) AS discount, 
+				MAX(discount_type) AS discount_type, 
+				MAX(item_location) AS item_location, 
+				MAX(item_receiving_quantity) AS receiving_quantity');
 			$this->db->from('receivings_items_temp');
 			$this->db->join('items', 'receivings_items_temp.item_id = items.item_id');
-			if (count($inputs['definition_ids']) > 0)
+			if(count($inputs['definition_ids']) > 0)
 			{
-				$this->db->select('GROUP_CONCAT(DISTINCT CONCAT_WS(\':\', definition_id, attribute_value) ORDER BY definition_id SEPARATOR \'|\') AS attribute_values');
+				$format = $this->db->escape(dateformat_mysql());
+				$this->db->select('GROUP_CONCAT(DISTINCT CONCAT_WS(\'_\', definition_id, attribute_value) ORDER BY definition_id SEPARATOR \'|\') AS attribute_values');
+				$this->db->select("GROUP_CONCAT(DISTINCT CONCAT_WS('_', definition_id, DATE_FORMAT(attribute_date, $format)) SEPARATOR '|') AS attribute_dtvalues");
+				$this->db->select('GROUP_CONCAT(DISTINCT CONCAT_WS(\'_\', definition_id, attribute_decimal) SEPARATOR \'|\') AS attribute_dvalues');
 				$this->db->join('attribute_links', 'attribute_links.item_id = items.item_id AND attribute_links.receiving_id = receivings_items_temp.receiving_id AND definition_id IN (' . implode(',', $inputs['definition_ids']) . ')', 'left');
 				$this->db->join('attribute_values', 'attribute_values.attribute_id = attribute_links.attribute_id', 'left');
-				$this->db->group_by('receivings_items_temp.receiving_id, receivings_items_temp.item_id');
 			}
 			$this->db->where('receivings_items_temp.receiving_id', $value['receiving_id']);
+			$this->db->group_by('receivings_items_temp.receiving_id, receivings_items_temp.item_id');
 			$data['details'][$key] = $this->db->get()->result_array();
 		}
 
@@ -126,15 +139,15 @@ class Detailed_receivings extends Report
 
 		if($inputs['receiving_type'] == 'receiving')
 		{
-			$this->db->where('quantity_purchased > 0');
+			$this->db->where('quantity_purchased >', 0);
 		}
 		elseif($inputs['receiving_type'] == 'returns')
 		{
-			$this->db->where('quantity_purchased < 0');
+			$this->db->where('quantity_purchased <', 0);
 		}
 		elseif($inputs['receiving_type'] == 'requisitions')
 		{
-			$this->db->where('quantity_purchased = 0');
+			$this->db->where('quantity_purchased', 0);
 		}
 
 		return $this->db->get()->row_array();
